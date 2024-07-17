@@ -1,8 +1,13 @@
-module github.com/Ali-aqrabawi/gomiko
+module github.com/asadarafat/netmiGO
 
-go 1.18
+go 1.22.5
+
+require golang.org/x/crypto v0.25.0
+
+require github.com/kr/fs v0.1.0 // indirect
 
 require (
-	github.com/pkg/errors v0.8.1
-	golang.org/x/crypto v0.4.0
+	github.com/pkg/sftp v1.13.6
+	github.com/sirupsen/logrus v1.9.3 // indirect
+	golang.org/x/sys v0.22.0 // indirect
 )
