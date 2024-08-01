@@ -1,7 +1,7 @@
 package main
 
 import (
-	"fmt"
+	"strings"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -55,7 +55,18 @@ func exampleBasicSROS() {
 	commands := []string{"show version", "load full-replace cf3:clab-nokia-ServiceProvider-R09-PE-ASBR-running.cfg"}
 	output3, _ := Router10.SendConfigSet(commands)
 
-	output4, _ := Router10.SendCommand("show uptime")
+	output4, _ := Router10.SendCommand("show version")
+
+	log.Info(output4)
+
+	// Split the output string into lines
+	lines := strings.Split(output4, "\n")
+
+	// Remove the first and last two lines
+	trimmedLines := lines[1 : len(lines)-2]
+
+	// Join the remaining lines into a single string
+	processedOutput := strings.Join(trimmedLines, "\n")
 
 	// Capture the start time in milliseconds
 	start = time.Now().UnixNano()
@@ -65,9 +76,10 @@ func exampleBasicSROS() {
 	duration = end - start
 	log.Infof("disconnect from router duration: %v nanoseconds", duration)
 
-	fmt.Println(output1)
-	fmt.Println(output2)
-	fmt.Println(output3)
-	fmt.Println(output4)
+	log.Info(output1)
+	log.Info(output2)
+	log.Info(output3)
+
+	log.Info(processedOutput)
 
 }

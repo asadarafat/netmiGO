@@ -21,6 +21,10 @@ func (d *DeviceConnection) Connect() error {
 	return d.Connection.Connect()
 }
 
+func (d *DeviceConnection) ConnectXterm() error {
+	return d.Connection.ConnectXterm()
+}
+
 func (d *DeviceConnection) Disconnect() {
 	d.Connection.Disconnect()
 }
@@ -31,14 +35,6 @@ func (d *DeviceConnection) SetTimeout(timeout uint8) {
 
 func (d *DeviceConnection) SendCommand(cmd string) (string, error) {
 	return d.SendCommandPattern(cmd, d.Return)
-}
-
-func (d *DeviceConnection) SendConfigSet(cmds []string) (string, error) {
-	results, _ := d.SendCommandPattern("configure exclusive", d.Return)
-	cmds = append(cmds, "commit", "exit")
-	out, err := d.SendCommandsSetPattern(cmds, d.Return)
-	results += out
-	return results, err
 }
 
 func (d *DeviceConnection) FindDevicePrompt(regex string, pattern string) (string, error) {
@@ -69,7 +65,9 @@ func (d *DeviceConnection) ReadUntil(pattern string) (string, error) {
 		go readRoutine(d, pattern, buffChan)
 		select {
 		case recv := <-buffChan:
+
 			outputChan <- recv
+
 		case <-time.After(4 * time.Second):
 			err = errors.New("timeout while reading, read pattern not found pattern: " + pattern)
 			close(outputChan)
@@ -85,7 +83,11 @@ func (d *DeviceConnection) SendCommandPattern(cmd string, expectPattern string) 
 	}
 
 	cmd += d.Return
+
 	d.Connection.Write(cmd)
+
+	// log.Infof("d.Connection.Write(cmd) : %s", (cmd))
+
 	return d.ReadUntil(expectPattern)
 }
 
@@ -105,10 +107,22 @@ func readRoutine(d *DeviceConnection, pattern string, buffChan chan<- string) {
 	var result string
 	result, err := d.Connection.Read()
 	r, _ := regexp.Compile(pattern)
+
+	cleanString := func(str string) string {
+		re := regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]`)
+		return re.ReplaceAllString(str, "")
+	}
+
 	for err == nil && !r.MatchString(result) {
 		outSlice, _ := d.Connection.Read()
+
+		outSlice = cleanString(outSlice)
+
 		result += outSlice
+		//  log.Infof("readRoutine() - result: %s", result)
+
 	}
+
 	buffChan <- result
 }
 

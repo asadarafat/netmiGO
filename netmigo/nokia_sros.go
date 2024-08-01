@@ -1,6 +1,10 @@
 package netmigo
 
-import "errors"
+import (
+	"errors"
+
+	log "github.com/sirupsen/logrus"
+)
 
 // SROSDeviceConnection represents a specific device type that uses a driver to connect and send commands.
 type SROSDeviceConnection struct {
@@ -23,11 +27,19 @@ func (sros *SROSDeviceConnection) Connect() error {
 	if err := sros.DeviceConnection.Connect(); err != nil {
 		return err
 	}
-	prompt, err := sros.FindDevicePrompt("\\*?([ABCD]:\\S*@?\\S+)[#>%]", "#")
+
+	// Define the regex pattern to find the SROS device prompt
+	const promptPattern = "\\*?([ABCD]:\\S*@?\\S+)[#>%]"
+	const expectedPromptSuffix = "#"
+
+	prompt, err := sros.FindDevicePrompt(promptPattern, expectedPromptSuffix)
 	if err != nil {
 		return err
 	}
 	sros.Prompt = prompt
+
+	log.Infof("sros.Prompt is: %s", prompt)
+
 	return sros.sessionPreparation()
 }
 

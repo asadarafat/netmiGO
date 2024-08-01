@@ -84,6 +84,59 @@ func (c *SSHConnModel) Connect() error {
 	return nil
 }
 
+// Connect with xterm
+
+func (c *SSHConnModel) ConnectXterm() error {
+	interactive := getInteractiveCallBack(c.Password)
+	sshConfig := &ssh.ClientConfig{
+		User:            c.Username,
+		Auth:            []ssh.AuthMethod{ssh.Password(c.Password), ssh.KeyboardInteractive(interactive)},
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		Timeout:         time.Duration(c.Timeout) * time.Second,
+	}
+	sshConfig.Ciphers = append(sshConfig.Ciphers, ciphers...)
+
+	conn, err := ssh.Dial("tcp", c.Addr, sshConfig)
+	if err != nil {
+		log.Error("failed to connect to device: " + err.Error())
+	}
+	c.Client = conn
+
+	session, err := c.Client.NewSession()
+	if err != nil {
+		log.Error("failed to start a new session: " + err.Error())
+	}
+
+	reader, err := session.StdoutPipe()
+	if err != nil {
+		log.Fatalf("Unable to setup stdin for session: %v", err)
+	}
+
+	writer, err := session.StdinPipe()
+	if err != nil {
+		log.Fatalf("Unable to setup stdout for session: %v", err)
+	}
+
+	c.Reader = reader
+	c.Writer = writer
+
+	modes := ssh.TerminalModes{
+		ssh.ECHO:          0,
+		ssh.TTY_OP_ISPEED: 14400,
+		ssh.TTY_OP_OSPEED: 14400,
+	}
+
+	if err := session.RequestPty("xterm", 80, 100, modes); err != nil {
+		log.Errorf("request for pseudo terminal failed: %v", err)
+	}
+
+	if err := session.Shell(); err != nil {
+		log.Errorf("Failed to start shell: %v", err)
+	}
+
+	return nil
+}
+
 // Disconnect closes the SSH connection.
 func (c *SSHConnModel) Disconnect() {
 	if err := c.Client.Close(); err != nil {
@@ -93,7 +146,7 @@ func (c *SSHConnModel) Disconnect() {
 
 // Read reads data from the SSH connection.
 func (c *SSHConnModel) Read() (string, error) {
-	buff := make([]byte, 204800)
+	buff := make([]byte, 2)
 	n, err := c.Reader.Read(buff)
 	return string(buff[:n]), err
 }
