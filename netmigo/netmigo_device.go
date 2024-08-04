@@ -157,6 +157,37 @@ func (d *DeviceConnection) FileTransfer(localFile, remoteFile string) error {
 	return nil
 }
 
+// RetrieveFile downloads a file from the remote device using SFTP.
+func (d *DeviceConnection) RetrieveFile(remoteFile, localFile string) error {
+	// Establish SFTP session
+	sftpClient, err := d.NewSFTPClient()
+	if err != nil {
+		return fmt.Errorf("failed to establish SFTP session: %v", err)
+	}
+	defer sftpClient.Close()
+
+	// Open the remote file
+	remoteFileReader, err := sftpClient.Open(remoteFile)
+	if err != nil {
+		return fmt.Errorf("failed to open remote file: %v", err)
+	}
+	defer remoteFileReader.Close()
+
+	// Create the local file
+	localFileWriter, err := os.Create(localFile)
+	if err != nil {
+		return fmt.Errorf("failed to create local file: %v", err)
+	}
+	defer localFileWriter.Close()
+
+	// Copy the file from the remote device to the local machine
+	if _, err := io.Copy(localFileWriter, remoteFileReader); err != nil {
+		return fmt.Errorf("failed to copy file: %v", err)
+	}
+
+	return nil
+}
+
 // NewSFTPClient creates a new SFTP client using the existing SSH connection.
 func (d *DeviceConnection) NewSFTPClient() (*sftp.Client, error) {
 	sftpClient, err := sftp.NewClient(d.Connection.Client)

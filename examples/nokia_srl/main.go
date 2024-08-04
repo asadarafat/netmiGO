@@ -14,11 +14,11 @@ func main() {
 	srl, _ := netmigo.InitSRLDevice("10.7.7.11", "admin", "NokiaSrl1!", 22)
 	srl.Connect()
 
-	if err := srl.FileTransfer("examples/nokia_srl/srl-router-config.json", "/home/admin/srl-router-config.json"); err != nil {
-		log.Error(err)
-	}
+	// if err := srl.FileTransfer("examples/nokia_srl/srl-router-config.json", "/home/admin/srl-router-config.json"); err != nil {
+	// 	log.Error(err)
+	// }
 
-	output2, _ := srl.SendCommand("info", "running", 10*time.Second)
+	output2, _ := srl.SendCommand("info flat", "running", 10*time.Second)
 	log.Info(output2)
 	fmt.Println(output2)
 
@@ -30,8 +30,20 @@ func main() {
 	log.Info(output4)
 	fmt.Println(output4)
 
-	output5, _ := srl.SendCommand("bash cat /home/admin/running-config.json", "running", 10*time.Second)
+	if err := srl.RetrieveFile("/home/admin/running-config.json", "examples/nokia_srl/running-config.json"); err != nil {
+		log.Error(err)
+	}
+
+	if err := srl.FileTransfer("examples/nokia_srl/running-config.json", "/home/admin/running-config.json"); err != nil {
+		log.Error(err)
+	}
+
+	output5, _ := srl.SendCommand("set system name host-name asad3", "candidate", 10*time.Second)
 	log.Info(output5)
 	fmt.Println(output5)
+
+	output6, _ := srl.SendCommand("load file running-config.json auto-commit", "candidate", 10*time.Second)
+	log.Info(output6)
+	fmt.Println(output6)
 
 }
