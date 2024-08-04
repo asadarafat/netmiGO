@@ -32,13 +32,7 @@ func (srl *SRLDeviceConnection) SendCommand(command string, cliPromptMode string
 
 	var outputBuffer bytes.Buffer
 	var promptMode string
-
-	if cliPromptMode == "running" {
-		promptMode = "-{ [OLD STARTUP] + running }--[  ]--"
-	} else {
-		log.Infof("Unspported cliPromptMode: %s", cliPromptMode)
-		return "", nil
-	}
+	var processedOutput string
 
 	stdin := srl.Connection.Writer
 	stdout := srl.Connection.Reader
@@ -46,54 +40,61 @@ func (srl *SRLDeviceConnection) SendCommand(command string, cliPromptMode string
 	scanner := bufio.NewScanner(stdout)
 	done := make(chan bool)
 
-	go func() {
-		defer func() { done <- true }()
-		appearanceCount := 0
-		for scanner.Scan() {
-			line := cleanOutput(scanner.Text())
-			outputBuffer.WriteString(line + "\n")
-			log.Info("Received line:", line)
+	if cliPromptMode == "running" {
+		promptMode = "-{ [OLD STARTUP] + running }--[  ]--"
+		go func() {
+			defer func() { done <- true }()
+			appearanceCount := 0
+			for scanner.Scan() {
+				line := cleanOutput(scanner.Text())
+				outputBuffer.WriteString(line + "\n")
+				log.Info("Received line:", line)
 
-			// Increment appearance count if the line contains the specific string
-			if strings.Contains(line, promptMode) {
-				appearanceCount++
-				if appearanceCount == 2 {
-					log.Info("Detected second appearance of end marker")
-					done <- true
-					return
+				// Increment appearance count if the line contains the specific string
+				if strings.Contains(line, promptMode) {
+					appearanceCount++
+					if appearanceCount == 2 {
+						log.Info("Detected second appearance of end marker")
+						done <- true
+						return
+					}
 				}
+
 			}
+			if err := scanner.Err(); err != nil {
+				log.Error("Error reading stdout:", err)
+			}
+		}()
 
+		log.Infof("Sending command: %s", command)
+		_, err := fmt.Fprintf(stdin, "%s\n", command)
+		if err != nil {
+			fmt.Println("Error writing to stdin:", err)
+			return "", err
 		}
-		if err := scanner.Err(); err != nil {
-			log.Error("Error reading stdout:", err)
+
+		// Wait for the output to be read or timeout
+		select {
+		case <-done:
+			log.Info("Reading completed")
+		case <-time.After(timeout):
+			log.Info("Timeout waiting for reading to complete")
 		}
-	}()
 
-	log.Infof("Sending command: %s", command)
-	_, err := fmt.Fprintf(stdin, "%s\n", command)
-	if err != nil {
-		fmt.Println("Error writing to stdin:", err)
-		return "", err
+		output := outputBuffer.String()
+
+		lines := strings.Split(output, "\n")               // Split the output string into lines
+		trimmedLines := lines[2 : len(lines)-2]            // Remove the first and last two lines
+		processedOutput = strings.Join(trimmedLines, "\n") // Join the remaining lines into a single string
+		// fmt.Print(processedOutput)
+
+		log.Info("Final output: ")
+		log.Debug(output)
+
+	} else {
+		log.Infof("Unspported cliPromptMode: %s", cliPromptMode)
+		return "", nil
 	}
-
-	// Wait for the output to be read or timeout
-	select {
-	case <-done:
-		log.Info("Reading completed")
-	case <-time.After(timeout):
-		log.Info("Timeout waiting for reading to complete")
-	}
-
-	output := outputBuffer.String()
-
-	lines := strings.Split(output, "\n")                // Split the output string into lines
-	trimmedLines := lines[2 : len(lines)-2]             // Remove the first and last two lines
-	processedOutput := strings.Join(trimmedLines, "\n") // Join the remaining lines into a single string
-	// fmt.Print(processedOutput)
-
-	log.Info("Final output: ")
-	log.Debug(output)
 
 	return processedOutput, nil
 
