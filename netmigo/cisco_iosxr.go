@@ -64,7 +64,6 @@ func (iosxr *IOSXRDeviceConnection) Connect() error {
 }
 
 func (iosxr *IOSXRDeviceConnection) SendCommand(command string, cliPromptMode string, timeout time.Duration) (string, error) {
-
 	var outputBuffer bytes.Buffer
 	var promptMode string
 	var processedOutput string
@@ -91,11 +90,11 @@ func (iosxr *IOSXRDeviceConnection) SendCommand(command string, cliPromptMode st
 				// Increment appearance count if the line contains the specific string
 				if strings.Contains(line, promptMode) {
 
+					appearanceCount++
 					log.Infof("line contain PromptMode, appearance count: %s", strconv.Itoa(appearanceCount))
 
-					appearanceCount++
 					if appearanceCount == 1 {
-						log.Info("Detected second appearance of end marker")
+						log.Infof("Detected %s appearance of end marker", strconv.Itoa(appearanceCount))
 						done <- true
 						return
 					}
@@ -134,7 +133,7 @@ func (iosxr *IOSXRDeviceConnection) SendCommand(command string, cliPromptMode st
 		log.Debug(output)
 
 	} else if cliPromptMode == "candidate" {
-		promptMode = "[edit]"
+		promptMode = "(config)#"
 
 		go func() {
 			defer func() { done <- true }()
@@ -145,10 +144,13 @@ func (iosxr *IOSXRDeviceConnection) SendCommand(command string, cliPromptMode st
 				log.Info("Received line: ", line+"\n")
 
 				// Increment appearance count if the line contains the specific string
-				if strings.Contains(line, promptMode) || strings.Contains(line, "commit complete") {
+				if strings.Contains(line, promptMode) {
+
 					appearanceCount++
-					if appearanceCount == 4 {
-						log.Info("Detected second appearance of end marker")
+					log.Infof("line contain PromptMode, appearance count: %s", strconv.Itoa(appearanceCount))
+
+					if appearanceCount == 2 {
+						log.Infof("Detected %s appearance of end marker", strconv.Itoa(appearanceCount))
 						done <- true
 						return
 					}
@@ -162,7 +164,7 @@ func (iosxr *IOSXRDeviceConnection) SendCommand(command string, cliPromptMode st
 
 		log.Infof("Sending command: %s", command)
 
-		_, err = fmt.Fprintf(stdin, "%s\n", "configure")
+		_, err = fmt.Fprintf(stdin, "%s\n", "configure terminal")
 		if err != nil {
 			fmt.Println("Error writing to stdin:", err)
 			return "", err
@@ -174,11 +176,17 @@ func (iosxr *IOSXRDeviceConnection) SendCommand(command string, cliPromptMode st
 			return "", err
 		}
 
-		_, err = fmt.Fprintf(stdin, "%s\n", "commit")
+		_, err = fmt.Fprintf(stdin, "%s\n", "exit")
 		if err != nil {
 			fmt.Println("Error writing to stdin:", err)
 			return "", err
 		}
+
+		// _, err = fmt.Fprintf(stdin, "%s\n", "commit")
+		// if err != nil {
+		// 	fmt.Println("Error writing to stdin:", err)
+		// 	return "", err
+		// }
 
 		// Wait for the output to be read or timeout
 		select {
@@ -191,20 +199,17 @@ func (iosxr *IOSXRDeviceConnection) SendCommand(command string, cliPromptMode st
 		output := outputBuffer.String()
 
 		lines := strings.Split(output, "\n")               // Split the output string into lines
-		trimmedLines := lines[10 : len(lines)-2]           // Remove the first and last two lines
+		trimmedLines := lines[1 : len(lines)-2]            // Remove the first and last two lines
 		processedOutput = strings.Join(trimmedLines, "\n") // Join the remaining lines into a single string
 		// fmt.Print(processedOutput)
-
-		log.Info("Final output: ")
+		// log.Info("Final output: ")
 		log.Debug(output)
 
 	} else {
 		log.Infof("Unspported cliPromptMode: %s", cliPromptMode)
 		return "", nil
 	}
-
 	return processedOutput, nil
-
 }
 
 func cleanOutputIosxr(output string) string {
@@ -247,12 +252,6 @@ func (iosxr *IOSXRDeviceConnection) CopyRunningConfig(savedConfigFileName string
 					log.Info("Send Carriage Return")
 					fmt.Fprintf(stdin, "\n") //return enter
 				}
-				// else if strings.Contains(line, "overwrite?") {
-				// 	log.Info("expectString found: ", line)
-				// 	fmt.Fprintf(stdin, "yes") //return enter
-				// 	fmt.Fprintf(stdin, "\n")  //return enter
-
-				// }
 
 				// Increment appearance count if the line contains the specific string
 				if strings.Contains(line, promptMode) {
@@ -311,5 +310,89 @@ func (iosxr *IOSXRDeviceConnection) CopyRunningConfig(savedConfigFileName string
 	}
 
 	return output, nil
+}
 
+func (iosxr *IOSXRDeviceConnection) LoadRunningConfig(savedConfigFileName string, cliPromptMode string, timeout time.Duration) (string, error) {
+
+	var outputBuffer bytes.Buffer
+	var promptMode string
+	var processedOutput string
+	var output string
+
+	stdin := iosxr.Connection.Writer
+	stdout := iosxr.Connection.Reader
+
+	scanner := bufio.NewScanner(stdout)
+	done := make(chan bool)
+
+	if cliPromptMode == "candidate" {
+		promptMode = iosxr.Prompt // RP/0/RP0/CPU0:R11-P#
+
+		go func() {
+			defer func() { done <- true }()
+			appearanceCount := 0
+			for scanner.Scan() {
+				line := cleanOutputIosxr(scanner.Text())
+				// outputBuffer.WriteString(line + "\n")
+				outputBuffer.WriteString(line + "\n")
+
+				log.Info("Received line: ", line)
+
+				// Increment appearance count if the line contains the specific string
+				if strings.Contains(line, promptMode) {
+					log.Infof("line contain PromptMode, appearance count: %s", strconv.Itoa(appearanceCount))
+					appearanceCount++
+					if appearanceCount == 1 {
+						log.Infof("line contain PromptMode, appearance count: %s", strconv.Itoa(appearanceCount))
+						log.Infof("Detected %s appearance of end marker", strconv.Itoa(appearanceCount))
+						done <- true
+						return
+					}
+				}
+
+			}
+			if err := scanner.Err(); err != nil {
+				log.Error("Error reading stdout:", err)
+			}
+		}()
+
+		commandSaveRunningConfig := fmt.Sprintf("load %s", savedConfigFileName)
+		commands := []string{
+			"configure terminal\n",
+			fmt.Sprintf("%s\n", commandSaveRunningConfig),
+			"commit",
+			"\n",
+		}
+
+		log.Infof("Sending commands: %s", commands)
+
+		for _, cmd := range commands {
+			if _, err := fmt.Fprintf(stdin, "%s", cmd); err != nil {
+				fmt.Println("Error writing to stdin:", err)
+				return "", err
+			}
+		}
+
+		// Wait for the output to be read or timeout
+		select {
+		case <-done:
+			log.Info("Reading completed")
+		case <-time.After(timeout):
+			log.Info("Timeout waiting for reading to complete")
+		}
+
+		output = outputBuffer.String()
+
+		lines := strings.Split(output, "\n")               // Split the output string into lines
+		trimmedLines := lines[1 : len(lines)-1]            // Remove the first and last two lines
+		processedOutput = strings.Join(trimmedLines, "\n") // Join the remaining lines into a single string
+
+		log.Debug(processedOutput)
+
+	} else {
+		log.Infof("Unspported cliPromptMode: %s", cliPromptMode)
+		return "", nil
+	}
+
+	return output, nil
 }

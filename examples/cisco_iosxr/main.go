@@ -36,4 +36,13 @@ func main() {
 		log.Error(err)
 	}
 
+	output3, _ := iosxr.SendCommand("show", "candidate", 10*time.Second)
+	log.Info(output3)
+	// fmt.Println(output3)
+
+	output4, _ := iosxr.LoadRunningConfig("config-asad-ganteng.cfg", "candidate", 10*time.Second)
+	log.Info(output4)
+
+	iosxr.Disconnect()
+
 }
