@@ -14,9 +14,9 @@ func main() {
 	srl, _ := netmigo.InitSRLDevice("10.7.7.11", "admin", "NokiaSrl1!", 22)
 	srl.Connect()
 
-	// if err := srl.FileTransfer("examples/nokia_srl/srl-router-config.json", "/home/admin/srl-router-config.json"); err != nil {
-	// 	log.Error(err)
-	// }
+	if err := srl.FileTransfer("examples/nokia_srl/srl-router-config.json", "/home/admin/srl-router-config.json"); err != nil {
+		log.Error(err)
+	}
 
 	output2, _ := srl.SendCommand("info flat", "running", 10*time.Second)
 	log.Info(output2)

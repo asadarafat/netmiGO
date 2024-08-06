@@ -1,0 +1,155 @@
+## Last commit: 2024-08-05 20:01:48 UTC by admin
+version 21.4R1.12;
+system {
+    host-name vmx-ne1;
+    root-authentication {
+        encrypted-password "$6$BbthexIp$dRVhHwpp.he/P/3SD/tDj3D0.KiFJuOgrfz.VvGFhIswMqrqSYDGGXpKEqi0bwB37L4tZx6rMIj6dOoaumJIA1"; ## SECRET-DATA
+    }
+    login {
+        user admin {
+            uid 2000;
+            class super-user;
+            authentication {
+                encrypted-password "$6$xMEIxRqi$pay5XyNWJBpoIKXBNVDeEXZ3rX34kfLZMvK1z77QUGBBY6LLZnpkzg2Iv5vKQopR8PLJtBFxGSTlD7KuGKKXn/"; ## SECRET-DATA
+            }
+        }
+    }
+    services {
+        ssh {
+            root-login allow;
+            sftp-server;
+            connection-limit 25;
+        }
+        telnet {
+            connection-limit 25;
+        }
+        extension-service {
+            request-response {
+                grpc {
+                    clear-text {
+                        port 57400;
+                    }
+                    max-connections 4;
+                    skip-authentication;
+                }
+            }
+        }
+        netconf {
+            ssh {
+                connection-limit 25;
+                port 830;
+            }
+            rfc-compliant;
+        }
+    }
+    schema {
+        openconfig {
+            unhide;
+        }
+    }
+    syslog {
+        file interactive-commands {
+            interactive-commands any;
+        }
+        file messages {
+            any notice;
+            authorization info;
+        }
+    }
+}
+chassis {
+    fpc 0 {
+        pic 0 {
+            number-of-ports 96;
+        }
+    }
+}
+interfaces {
+    ge-0/0/1 {
+        description to_VMX2;
+        vlan-tagging;
+        mtu 9180;
+        unit 60 {
+            vlan-id 60;
+            family inet {
+                address 10.6.17.3/24;
+            }
+            family iso;
+            family mpls;
+        }
+    }
+    ge-0/0/2 {
+        unit 0 {
+            family inet {
+                address 77.1.1.3/24;
+            }
+            family inet6 {
+                address cafe:a5ad::201/64;
+            }
+        }
+    }
+    fxp0 {
+        unit 0 {
+            family inet {
+                address 10.0.0.15/24;
+            }
+        }
+    }
+    lo0 {
+        unit 0 {
+            family inet {
+                address 10.2.1.22/32;
+            }
+        }
+    }
+}
+snmp {
+    description vmx1;
+    location "Nokia Lab";
+    community private {
+        authorization read-write;
+    }
+    trap-group private {
+        version v2;
+        destination-port 162;
+        categories {
+            chassis;
+            link;
+            routing;
+            startup;
+            configuration;
+            services;
+        }
+        targets {
+            77.1.1.65;
+            77.1.1.66;
+            77.1.1.67;
+            77.1.1.68;
+            77.1.1.69;
+            77.1.1.73;
+            77.1.1.74;
+            77.1.1.75;
+            77.1.1.76;
+            77.1.1.77;
+            10.5.0.168;
+            10.5.0.175;
+        }
+    }
+    routing-instance-access;
+}
+protocols {
+    lldp {
+        management-address 10.2.1.22;
+        advertisement-interval 30;
+        transmit-delay 2;
+        hold-multiplier 4;
+        ptopo-configuration-trap-interval 30;
+        ptopo-configuration-maximum-hold-time 300;
+        lldp-configuration-notification-interval 30;
+        port-id-subtype interface-name;
+        interface all {
+            disable;
+        }
+        interface ge-0/0/1;
+    }
+}

@@ -5,21 +5,22 @@ import (
 	"bytes"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
 	log "github.com/sirupsen/logrus"
 )
 
-// SRLDeviceConnection represents a specific device type that uses a driver to connect and send commands.
-type SRLDeviceConnection struct {
+// JUNOSDeviceConnection represents a specific device type that uses a driver to connect and send commands.
+type JUNOSDeviceConnection struct {
 	DeviceConnection
 	DeviceType string
 	Prompt     string
 }
 
-func NewSRLDeviceConnection(connection *SSHConnModel, DeviceType string) (*SRLDeviceConnection, error) {
-	return &SRLDeviceConnection{
+func NewJUNOSDeviceConnection(connection *SSHConnModel, DeviceType string) (*JUNOSDeviceConnection, error) {
+	return &JUNOSDeviceConnection{
 		DeviceConnection: DeviceConnection{
 			Connection: connection,
 			Return:     "\n",
@@ -28,8 +29,8 @@ func NewSRLDeviceConnection(connection *SSHConnModel, DeviceType string) (*SRLDe
 	}, nil
 }
 
-// NewDevice initializes a new SRL device connection
-func InitSRLDevice(Host string, Username string, Password string, Port uint8) (*SRLDeviceConnection, error) {
+// NewDevice initializes a new JUNOS device connection
+func InitJUNOSDevice(Host string, Username string, Password string, Port uint8) (*JUNOSDeviceConnection, error) {
 
 	// Create connection
 	connection, err := InitTransport(Host, Username, Password, "ssh", Port)
@@ -38,33 +39,31 @@ func InitSRLDevice(Host string, Username string, Password string, Port uint8) (*
 	}
 
 	// Create the device
-	return NewSRLDeviceConnection(connection, "nokia_srl")
+	return NewJUNOSDeviceConnection(connection, "juniper_junos")
 }
 
-func (srl *SRLDeviceConnection) Connect() error {
-	if err := srl.DeviceConnection.ConnectXterm(); err != nil {
+func (junos *JUNOSDeviceConnection) Connect() error {
+	if err := junos.DeviceConnection.ConnectXterm(); err != nil {
 		return err
 	}
 
-	// Define the regex pattern to find the SRL device prompt
-	const promptPattern = "\\*?([ABCD]:\\S*@?\\S+)[#>%]"
-	const expectedPromptSuffix = "#"
+	// Define the regex pattern to find the JUNOS device prompt
+	// This pattern captures the prompt with variable content before the '>'
+	const promptPattern = `[\w\-\.@]+>` // Matches strings like "admin@vmx-ne1>"
+	const expectedPromptSuffix = ">"
 
-	// const promptPattern = `(?im)^--{(\s\[[\w\s]+\]){0,5}[\+\*\s]{1,}running\s}--\[.+?\]--\s*\n[abcd]:\S+#\s*$`
-	// const expectedPromptSuffix = ``
-
-	prompt, err := srl.FindDevicePrompt(promptPattern, expectedPromptSuffix)
+	prompt, err := junos.FindDevicePrompt(promptPattern, expectedPromptSuffix)
 	if err != nil {
 		return err
 	}
-	srl.Prompt = prompt
+	junos.Prompt = prompt
 
-	log.Infof("srl.Prompt is: %s", prompt)
+	log.Infof("junos.Prompt is: %s", prompt)
 
 	return nil
 }
 
-func (srl *SRLDeviceConnection) SendCommand(command string, cliPromptMode string, timeout time.Duration) (string, error) {
+func (junos *JUNOSDeviceConnection) SendCommand(command string, cliPromptMode string, timeout time.Duration) (string, error) {
 
 	var outputBuffer bytes.Buffer
 	var promptMode string
@@ -72,29 +71,30 @@ func (srl *SRLDeviceConnection) SendCommand(command string, cliPromptMode string
 
 	var err error
 
-	stdin := srl.Connection.Writer
-	stdout := srl.Connection.Reader
+	stdin := junos.Connection.Writer
+	stdout := junos.Connection.Reader
 
 	scanner := bufio.NewScanner(stdout)
 	done := make(chan bool)
 
 	if cliPromptMode == "running" {
-		// promptMode = "-{ [OLD STARTUP] + running }--[  ]--"
-		promptMode = "+ running"
+		promptMode = junos.Prompt // admin@vmx-ne1>
 
 		go func() {
 			defer func() { done <- true }()
 			appearanceCount := 0
 			for scanner.Scan() {
-				line := cleanOutput(scanner.Text())
+				line := cleanOutputJunos(scanner.Text())
 				outputBuffer.WriteString(line + "\n")
-				log.Info("Received line:", line)
+				log.Info("Received line: ", line)
 
 				// Increment appearance count if the line contains the specific string
 				if strings.Contains(line, promptMode) {
+					log.Infof("line contain PromptMode, appearance count: %s", strconv.Itoa(appearanceCount))
 					appearanceCount++
-					if appearanceCount == 2 {
-						log.Info("Detected second appearance of end marker")
+					if appearanceCount == 1 {
+						log.Infof("line contain PromptMode, appearance count: %s", strconv.Itoa(appearanceCount))
+						log.Infof("Detected %s appearance of end marker", strconv.Itoa(appearanceCount))
 						done <- true
 						return
 					}
@@ -107,7 +107,8 @@ func (srl *SRLDeviceConnection) SendCommand(command string, cliPromptMode string
 		}()
 
 		log.Infof("Sending command: %s", command)
-		_, err := fmt.Fprintf(stdin, "%s\n", command)
+		_, err := fmt.Fprintf(stdin, "%s | no-more \n\n", command)
+
 		if err != nil {
 			fmt.Println("Error writing to stdin:", err)
 			return "", err
@@ -124,7 +125,7 @@ func (srl *SRLDeviceConnection) SendCommand(command string, cliPromptMode string
 		output := outputBuffer.String()
 
 		lines := strings.Split(output, "\n")               // Split the output string into lines
-		trimmedLines := lines[2 : len(lines)-2]            // Remove the first and last two lines
+		trimmedLines := lines[1 : len(lines)-1]            // Remove the first and last two lines
 		processedOutput = strings.Join(trimmedLines, "\n") // Join the remaining lines into a single string
 		// fmt.Print(processedOutput)
 
@@ -132,21 +133,20 @@ func (srl *SRLDeviceConnection) SendCommand(command string, cliPromptMode string
 		log.Debug(output)
 
 	} else if cliPromptMode == "candidate" {
-		// promptMode = "-{ [OLD STARTUP] + running }--[  ]--"
-		promptMode = "+ candidate"
+		promptMode = "[edit]"
 
 		go func() {
 			defer func() { done <- true }()
 			appearanceCount := 0
 			for scanner.Scan() {
-				line := cleanOutput(scanner.Text())
+				line := cleanOutputJunos(scanner.Text())
 				outputBuffer.WriteString(line + "\n")
 				log.Info("Received line: ", line+"\n")
 
 				// Increment appearance count if the line contains the specific string
-				if strings.Contains(line, promptMode) || strings.Contains(line, "Leaving candidate mode") {
+				if strings.Contains(line, promptMode) || strings.Contains(line, "commit complete") {
 					appearanceCount++
-					if appearanceCount == 3 {
+					if appearanceCount == 4 {
 						log.Info("Detected second appearance of end marker")
 						done <- true
 						return
@@ -161,7 +161,7 @@ func (srl *SRLDeviceConnection) SendCommand(command string, cliPromptMode string
 
 		log.Infof("Sending command: %s", command)
 
-		_, err = fmt.Fprintf(stdin, "%s\n", "enter candidate")
+		_, err = fmt.Fprintf(stdin, "%s\n", "configure")
 		if err != nil {
 			fmt.Println("Error writing to stdin:", err)
 			return "", err
@@ -173,7 +173,7 @@ func (srl *SRLDeviceConnection) SendCommand(command string, cliPromptMode string
 			return "", err
 		}
 
-		_, err = fmt.Fprintf(stdin, "%s\n", "commit now")
+		_, err = fmt.Fprintf(stdin, "%s\n", "commit")
 		if err != nil {
 			fmt.Println("Error writing to stdin:", err)
 			return "", err
@@ -190,7 +190,7 @@ func (srl *SRLDeviceConnection) SendCommand(command string, cliPromptMode string
 		output := outputBuffer.String()
 
 		lines := strings.Split(output, "\n")               // Split the output string into lines
-		trimmedLines := lines[2 : len(lines)-2]            // Remove the first and last two lines
+		trimmedLines := lines[10 : len(lines)-2]           // Remove the first and last two lines
 		processedOutput = strings.Join(trimmedLines, "\n") // Join the remaining lines into a single string
 		// fmt.Print(processedOutput)
 
@@ -206,40 +206,9 @@ func (srl *SRLDeviceConnection) SendCommand(command string, cliPromptMode string
 
 }
 
-// func (srl *SRLDeviceConnection) SendCommands(commands []string, prompt string) (string, error) {
-
-// 	var outputBuffer bytes.Buffer
-
-// 	stdin := srl.Connection.Writer
-// 	stdout := srl.Connection.Reader
-
-// 	scanner := bufio.NewScanner(stdout)
-// 	go func() {
-// 		for scanner.Scan() {
-// 			line := cleanOutput(scanner.Text())
-// 			outputBuffer.WriteString(line + "\n")
-// 			// fmt.Println(line)
-// 			// if strings.Contains(line, prompt) {
-// 			// 	stdin.Write([]byte("quit\n"))
-// 			// }
-// 		}
-// 	}()
-
-// 	for _, cmd := range commands {
-// 		fmt.Fprintf(stdin, "%s\n", cmd)
-// 		time.Sleep(4 * time.Second)
-// 	}
-
-// 	// stdin.Close()
-// 	return outputBuffer.String(), nil
-// }
-
-func cleanOutput(output string) string {
+func cleanOutputJunos(output string) string {
 	re := regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]|\x1b\[\?2004[lh]|\x1b\[\?25[hl]|\x1b\[\?12[hl]|\x1b\[\?7[hl]`)
 	output = re.ReplaceAllString(output, "")
-
-	// reRunning := regexp.MustCompile(`--\{ \[OLD STARTUP\] \+ running \}--\[  \]--`)
-	// output = reRunning.ReplaceAllString(output, "")
 
 	return output
 }
