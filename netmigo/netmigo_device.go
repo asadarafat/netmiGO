@@ -267,13 +267,13 @@ func (d *DeviceConnection) RetrieveFileReadAll(remoteFile, localFile string) err
 	// io.ReadAll
 	data, err := io.ReadAll(remoteFileReader)
 	if err != nil {
-		log.Fatalf("Failed to read remote file: %v", err)
+		log.Errorf("Failed to read remote file: %v", err)
 	}
 
 	// Create the local file
 	err = os.WriteFile(localFile, data, 0644)
 	if err != nil {
-		log.Fatalf("Failed to write to local file: %v", err)
+		log.Errorf("Failed to write to local file: %v", err)
 	}
 	log.Infof("File retrieved successfully using SFTP ReadAll method from '%s' to '%s'", remoteFile, localFile)
 	return nil
